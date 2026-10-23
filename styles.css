@@ -1,0 +1,41 @@
+body {
+  margin: 0;
+}
+
+#nyc_map {
+  width: 100vw;
+  height: 60vh
+}
+
+.panel {
+  padding: 16px 24px;
+  font-family: Georgia, 'Times New Roman', Times, serif;
+}
+
+.species_list {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.species_card {
+  width: 160px;
+}
+
+.species_card img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 8px;
+}
+
+.species_card h3 {
+  margin: 8px 0 2px;
+  font-size: 1rem;
+}
+
+.sci_name {
+  margin: 0;
+  font-style: italic;
+  color: #666;
+}
