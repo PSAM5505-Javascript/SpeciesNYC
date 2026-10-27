@@ -15,7 +15,7 @@ const quality_grade = "quality_grade=research";
 
 //observations - state vs local 
 const state_total_promise = fetchTotal();
-const min_obs = 10; 
+const min_obs = 10;
 
 L.tileLayer(`https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png?key=${CARTO_KEY}`, {
     attribution: "&copy; OpenStreetMap contributors &copy; CARTO"
@@ -32,28 +32,48 @@ nyc_map.on("click", async function (e) {
     }
     const results = await fetchSpecies(e.latlng.lat, e.latlng.lng, (search_radius_km));
     const species = results.slice(0, 5);
-    renderSpecies(species, "common_list");
     //total observations 
     const state_total = await state_total_promise;
     const local_total = await fetchTotal(`lat=${e.latlng.lat}&lng=${e.latlng.lng}&radius=${search_radius_km}`);
     // console.log(state_total, local_total);
-    const keep_species = results.filter(d => d.count >= min_obs); 
+    const keep_species = results.filter(d => d.count >= min_obs);
     const ids = keep_species.map(d => d.taxon.id);
     //filtering + mapping + adding local distinctiveness score
     const ids_str = ids.join(",");
-    const state_lookup = await fetchStateCounts(ids_str); 
-    const scored_species = []; 
+    const state_lookup = await fetchStateCounts(ids_str);
+    const scored_species = [];
     for (const d of keep_species) {
-        if (!state_lookup.has(d.taxon.id)) continue; 
+        if (!state_lookup.has(d.taxon.id)) continue;
         const ld_score = (d.count / local_total) / (state_lookup.get(d.taxon.id) / state_total);
-        const scored = {...d, score: ld_score}; 
+        const scored = { ...d, score: ld_score };
         scored_species.push(scored);
     }
     //console.table(scored_species);
     //sort by score
-    scored_species.sort((a, b) => b.score - a.score); 
+    scored_species.sort((a, b) => b.score - a.score);
     const dist_species = scored_species.slice(0, 5);
-    renderSpecies(dist_species, "distinctive_list");
+    //labels: native|introduced|unknown|at-risk 
+    const combined_species = [...species, ...dist_species];
+    const combined_ids = combined_species.map(d => d.taxon.id);
+    const combined_ids_str = combined_ids.join(",");
+    const [native_set, introed_set, atrisk_set] = await Promise.all([
+        fetchIDSet(combined_ids_str, "native=true"),
+        fetchIDSet(combined_ids_str, "introduced=true"),
+        fetchIDSet(combined_ids_str, "threatened=true"),
+    ]);
+    const tagged_species = [];
+    for (const d of combined_species) {
+        const status = native_set.has(d.taxon.id) ? "native"
+            : introed_set.has(d.taxon.id) ? "introduced"
+                : "unknown";
+        const at_risk = atrisk_set.has(d.taxon.id);
+        const tagged = { ...d, status: status, at_risk: at_risk };
+        tagged_species.push(tagged);
+    }
+    //console.log(tagged_species);
+    //render
+    renderSpecies(tagged_species.slice(0, species.length), "common_list");
+    renderSpecies(tagged_species.slice(species.length), "distinctive_list");
 });
 
 async function fetchSpecies(lat, lng, radius_km) {
@@ -80,11 +100,17 @@ function renderSpecies(species, list_id) {
         // const photo_sm = d.taxon.default_photo?.square_url;
         const photo_med = d.taxon.default_photo?.medium_url;
         const photo_cred = d.taxon.default_photo?.attribution;
+        const at_risk = d.at_risk === true ? `<span class="tag at_risk">at risk</span>` : "";
+        const status = d.status;
         container.innerHTML += `
         <div class="species_card">
             <img src="${photo_med}" alt="${common_name}" title="${photo_cred}">
             <h3>${common_name}</h3>
             <p class="sci_name">${scientific_name}</p>
+            <div class="tags">
+                <span class="tag ${status}">${status}</span>
+                ${at_risk}
+            </div>
             <p>${count} observations</p>
         </div>`;
     }
@@ -113,6 +139,20 @@ async function fetchStateCounts(ids) {
     for (const d of data.results) {
         species_lookup.set(d.taxon.id, d.count)
     }
-    return species_lookup; 
+    return species_lookup;
 }
 
+async function fetchIDSet(ids, filter) {
+    const url = `${base_url}/species_counts?${nystate_id}&${quality_grade}&taxon_id=${ids}&per_page=500&${filter}`;
+    const response = await fetch(url);
+    const id_set = new Set([]);
+    if (!response.ok) {
+        console.log("Request failed:", response.status);
+        return id_set;
+    }
+    const data = await response.json();
+    for (const d of data.results) {
+        id_set.add(d.taxon.id);
+    }
+    return id_set;
+}
